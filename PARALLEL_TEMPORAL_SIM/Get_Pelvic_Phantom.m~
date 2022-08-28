@@ -1,0 +1,108 @@
+function [ phantBase, phantFeatures ] = Get_Pelvic_Phantom(...
+                                        samplingTimes, params )
+%  WRITTEN: Nathan Murtha (nathan.j.murtha@gmail.com)
+%           Jan 22, 2017
+%   
+%  PURPOSE: Generates a 3D numerical phantom for use in assessing CS 
+%           performance in quantitative parameter recovery. Contains 32 
+%           slices:
+%            Slice 1-2   = empty phantom base
+%            Slice 3-5   = dynamic embedded cylinders (Ktrans varies)
+%            Slice 6-8   = empty phantom base
+%            Slice 9-11  = dynamic embedded cylinders (Ve varies)
+%            Slice 12-14 = empty phantom base
+%            Slice 15-17 = dynamic embedded cylinders (Vp varies)
+%            Slice 18-20 = empty phantom base
+%            Slice 21-23 = static pin grids
+%            Slice 24-26 = empty phantom base
+%            Slice 27-29 = linearly increasing pin grids
+%            Slice 30-32 = empty phantom base
+% 
+%  INPUTS
+%   samplingTimes -> Times at which each frequency encode begins. A vector,
+%                    in units of seconds.
+%
+%  OUTPUTS
+%   phantBase     -> Static base of the phantom. A 3D array with arbitrary 
+%                    units.
+%
+%   phantFeatures -> phantFeatures(i).shape contains the shape of the
+%                    i-th phantom feature (3D array, unitless).
+%                 -> phantFeatures(i).Ct contains signal intensity 
+%                    evolution information for the i-th phantom feature 
+%                    (vector, arbitrary units).
+%                 -> phantFeatures(i).params contains supplied temporal
+%                    parameters for the i-th phantom feature 
+%                    (vector, units listed below). 
+%                    Tofts  = [Ktrans, Ve, Vp].
+%                    Linear = [normalized slope (arb unit / sec), 
+%                              constant offset (arb units)].
+%                    These parameters are manually set in the code below.
+%                 
+%  EXTERNALS
+%   cphantVol1.mat
+%   parker_aif.m
+%   calc_extended_tofts_intg.m
+
+%% ------------------------------------------------------------------------
+%  ---------------   LOAD PELVIC IMAGE AS PHANTOM BASE   ------------------
+%  ------------------------------------------------------------------------
+
+% Load the image.
+load('cphantVol1.mat');
+
+% Assign phantom base and clear image from memory.
+phantBase = cphantVol1;
+
+%% ------------------------------------------------------------------------
+%  ----------------------   GENERATE TOFTS FEATURE    ---------------------
+%  ------------------------------------------------------------------------
+%
+%  Feature is a simple cube for now, with vertices manually set to fit in
+%  the cphantVol1 pelvic image prostate region.
+
+% Set vertices of cube shaped feature in a matrix, where each row
+% represents the coordinates of a vertex in the form (row col slice).
+vertices = [113 124 18;
+            121 124 18;
+            113 136 18;
+            121 136 18;
+            113 124 11;
+            121 124 11;
+            113 136 11;
+            121 136 11];
+
+% Allocate feature structure. Parameters are [Ktrans Ve Vp].
+phantFeatures = struct(...
+    'shape' ,zeros(size(phantBase)),...
+    'Ct'    ,zeros(1,length(samplingTimes)),...
+    'params',params);
+
+% Generate feature shape.
+phantFeatures.shape(...
+    min(vertices(:,1)):max(vertices(:,1)),...
+    min(vertices(:,2)):max(vertices(:,2)),...
+    min(vertices(:,3)):max(vertices(:,3))) = 1;
+
+% Generate feature timecourse.
+phantFeatures.Ct = calc_extended_tofts_intg(...
+    phantFeatures.params,...
+    samplingTimes);
+
+%% ------------------------------------------------------------------------
+%  -------------------   ASSEMBLE BASE OF PHANTOM   -----------------------
+%  ------------------------------------------------------------------------
+%
+%  The phantom base has a hole where the feature will sit, so must zero-out
+%  the pixels in the phantom base corresponding to the feature. 
+
+% Allocate array for static phantom base.
+phantBase(...
+    min(vertices(:,1)):max(vertices(:,1)),...
+    min(vertices(:,2)):max(vertices(:,2)),...
+    min(vertices(:,3)):max(vertices(:,3))) = 0;
+
+% Normalize the phantom base 
+
+end
+

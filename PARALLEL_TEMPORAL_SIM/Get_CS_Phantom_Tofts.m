@@ -1,0 +1,383 @@
+function [ phantBase, phantFeatures ] = Get_CS_Phantom_Tofts( numRows, numCols,...
+                                        samplingTimes )
+%  WRITTEN: Nathan Murtha (nathan.j.murtha@gmail.com)
+%           Jan 22, 2017
+%   
+%  PURPOSE: Generates a 3D numerical phantom for use in assessing CS 
+%           performance in quantitative parameter recovery. Contains 32 
+%           slices:
+%            Slice 1-2   = empty phantom base
+%            Slice 3-5   = dynamic embedded cylinders (Ktrans varies)
+%            Slice 6-8   = empty phantom base
+%            Slice 9-11  = dynamic embedded cylinders (Ve varies)
+%            Slice 12-14 = empty phantom base
+%            Slice 15-17 = dynamic embedded cylinders (Vp varies)
+%            Slice 18-20 = empty phantom base
+%            Slice 21-23 = static pin grids
+%            Slice 24-26 = empty phantom base
+%            Slice 27-29 = linearly increasing pin grids
+%            Slice 30-32 = empty phantom base
+% 
+%  INPUTS
+%   numRows       -> Number of rows desired in simulated phantom image. A
+%                    scalar input.
+%
+%   numCols       -> Number of columns desired in simulated phantom image.
+%                    A scalar input. 
+%
+%   samplingTimes -> Times at which each frequency encode begins. A vector,
+%                    in units of seconds.
+%
+%  OUTPUTS
+%   phantBase     -> Static base of the phantom. A 3D array with arbitrary 
+%                    units.
+%
+%   phantFeatures -> phantFeatures(i).shape contains the shape of the
+%                    i-th phantom feature (3D array, unitless).
+%                 -> phantFeatures(i).Ct contains signal intensity 
+%                    evolution information for the i-th phantom feature 
+%                    (vector, arbitrary units).
+%                 -> phantFeatures(i).params contains supplied temporal
+%                    parameters for the i-th phantom feature 
+%                    (vector, units listed below). 
+%                    Tofts  = [Ktrans, Ve, Vp].
+%                    Linear = [normalized slope (arb unit / sec), 
+%                              constant offset (arb units)].
+%                    These parameters are manually set in the code below.
+%                 
+%  EXTERNALS
+%   getBaseSlice.m
+%   getPKslice.m
+%   getPinGridSlice.m
+%   parker_aif.m
+%   calc_extended_tofts_intg.m
+
+%% ------------------------------------------------------------------------
+%  --------------------   SET CONSTANTS FOR PHANTOM   ---------------------
+%  ------------------------------------------------------------------------
+
+% Set number of slices. DO NOT CHANGE THIS without manually altering the
+% slices in the phantom.
+numSlices = 32;
+
+%% ------------------------------------------------------------------------
+%  -------------------   GATHER PHANTOM SLICE MASKS   ---------------------
+%  ------------------------------------------------------------------------
+%
+%  Phantom slice masks are generated here. Masks are arrays of 0's and
+%  1's, where 1's are placed in areas where relevant features will be.
+%          maskBaseSlice -> 2D array.
+%          maskOuterCyl  -> 2D array.
+%          maskInnerCyl  -> 3D array, 4 entries in third dimension.
+%
+%  These masks will be used to generate the phantFeatures.shape entries, 
+%  to which phantFeatures.Ct and phantFeature.params entries will be 
+%  assigned. 
+
+% Obtain base slice mask.
+maskBaseSlice = getBaseSlice(numRows,numCols);
+
+% Obtain embedded cylinder feature masks.
+[ maskOuterCyl, maskInnerCyl ] = getPKSlice(numRows,numCols);
+
+% Obtain pin grid mask.
+maskPinSlice = getPinGridSlice(numRows,numCols);
+
+
+%% ------------------------------------------------------------------------
+%  ------------   CREATE BACKGROUND PROFILE FOR EACH SLICE   --------------
+%  ------------------------------------------------------------------------
+%
+%  For each slice with features, the background must have the feature mask
+%  itself subtracted to ensure no additive overlap (i.e. we "carve holes" 
+%  for the phantom features). 
+
+% Make embedded cylinders slice background profile.
+bkrdEmbedCyls = maskBaseSlice - maskOuterCyl;
+for iInnerCyl = 1:length( maskInnerCyl(1,1,:) )
+    bkrdEmbedCyls = bkrdEmbedCyls - maskInnerCyl(:,:,iInnerCyl);
+end
+
+% Make pin grid slice background profile.
+bkrdPinFeats = maskBaseSlice - maskPinSlice;
+
+
+%% ------------------------------------------------------------------------
+%  -------------------   ASSEMBLE BASE OF PHANTOM   -----------------------
+%  ------------------------------------------------------------------------
+%
+%  The phantom base is defined by concatenating the above background
+%  profiles for each slice type appropriately, making a 3D array consisting
+%  of 32 slices, each slice measuring numRows by numCols.
+%
+%  If the number of slices is to be changed, this is one of the places
+%  where the code must manually be altered.
+
+% Allocate array for static phantom base.
+phantBase = zeros(numRows,numCols,numSlices); 
+
+% Populate each slice of the phantom.
+phantBase(:,:,1)  = maskBaseSlice;
+phantBase(:,:,2)  = maskBaseSlice;
+
+phantBase(:,:,3)  = bkrdEmbedCyls;
+phantBase(:,:,4)  = bkrdEmbedCyls;
+phantBase(:,:,5)  = bkrdEmbedCyls;
+
+phantBase(:,:,6)  = maskBaseSlice;
+phantBase(:,:,7)  = maskBaseSlice;
+phantBase(:,:,8)  = maskBaseSlice;
+
+phantBase(:,:,9)  = bkrdEmbedCyls;
+phantBase(:,:,10) = bkrdEmbedCyls;
+phantBase(:,:,11) = bkrdEmbedCyls;
+
+phantBase(:,:,12) = maskBaseSlice;
+phantBase(:,:,13) = maskBaseSlice;
+phantBase(:,:,14) = maskBaseSlice;
+
+phantBase(:,:,15) = bkrdEmbedCyls;
+phantBase(:,:,16) = bkrdEmbedCyls;
+phantBase(:,:,17) = bkrdEmbedCyls;
+
+phantBase(:,:,18) = maskBaseSlice;
+phantBase(:,:,19) = maskBaseSlice;
+phantBase(:,:,20) = maskBaseSlice;
+
+phantBase(:,:,21) = bkrdPinFeats;
+phantBase(:,:,22) = bkrdPinFeats;
+phantBase(:,:,23) = bkrdPinFeats;
+
+phantBase(:,:,24) = maskBaseSlice;
+phantBase(:,:,25) = maskBaseSlice;
+phantBase(:,:,26) = maskBaseSlice;
+
+phantBase(:,:,27) = bkrdPinFeats;
+phantBase(:,:,28) = bkrdPinFeats;
+phantBase(:,:,29) = bkrdPinFeats;
+
+phantBase(:,:,30) = maskBaseSlice;
+phantBase(:,:,31) = maskBaseSlice;
+phantBase(:,:,32) = maskBaseSlice;
+
+
+%% ------------------------------------------------------------------------
+%  ---------------------   ASSIGN FEATURE SHAPES  -------------------------
+%  ------------------------------------------------------------------------
+%
+%  The feature shape assignments are done here, using the feature maskes
+%  created above. The feature shapes are extended to three dimensional 
+%  arrays, where all entries are zero outside the feature zones (this is 
+%  for convenience in adding the features to the base later, so that array 
+%  dimensions agree). The feature shape arrays are then stored in a
+%  structure array for output.
+
+% Preallocate structure array for features. This has 3D arrays for the
+% shapes, a vector for the contrast evolution, and a vector for the 
+% temporal parameters used in making the contrast evolution. Only the first
+% field, the 3D shape arrays, is populated in this section.
+numFeats = 17;
+phantFeatures(1:numFeats) = struct('shape',zeros(numRows,numCols,numSlices),...
+    'Ct',zeros(1,length(samplingTimes)),...
+    'params',[]);
+
+% Features in slices 3 to 5 will be embedded cylinders.
+for iSlice = 3:5
+    phantFeatures(1).shape(:,:,iSlice) = maskOuterCyl;
+    phantFeatures(2).shape(:,:,iSlice) = maskInnerCyl(:,:,1);
+    phantFeatures(3).shape(:,:,iSlice) = maskInnerCyl(:,:,2);
+    phantFeatures(4).shape(:,:,iSlice) = maskInnerCyl(:,:,3);
+    phantFeatures(5).shape(:,:,iSlice) = maskInnerCyl(:,:,4);
+end
+
+% Features in slices 9 to 11 will be embedded cylinders.
+for iSlice = 9:11
+    phantFeatures(6).shape(:,:,iSlice)  = maskOuterCyl;
+    phantFeatures(7).shape(:,:,iSlice)  = maskInnerCyl(:,:,1);
+    phantFeatures(8).shape(:,:,iSlice)  = maskInnerCyl(:,:,2);
+    phantFeatures(9).shape(:,:,iSlice)  = maskInnerCyl(:,:,3);
+    phantFeatures(10).shape(:,:,iSlice) = maskInnerCyl(:,:,4);
+end
+
+% Features in slices 15 to 17 will be embedded cylinders.
+for iSlice = 15:17
+    phantFeatures(11).shape(:,:,iSlice) = maskOuterCyl;
+    phantFeatures(12).shape(:,:,iSlice) = maskInnerCyl(:,:,1);
+    phantFeatures(13).shape(:,:,iSlice) = maskInnerCyl(:,:,2);
+    phantFeatures(14).shape(:,:,iSlice) = maskInnerCyl(:,:,3);
+    phantFeatures(15).shape(:,:,iSlice) = maskInnerCyl(:,:,4);
+end
+
+% Features in slices 21 to 23 will be pin grids.
+for iSlice = 21:23
+    phantFeatures(16).shape(:,:,iSlice) = maskPinSlice;
+end 
+
+% Features in slice 27 to 29 will be pin grids.
+for iSlice = 27:29
+    phantFeatures(17).shape(:,:,iSlice) = maskPinSlice;
+end
+
+
+%% ------------------------------------------------------------------------
+%  -----------------   ASSIGN FEATURE TEMPORAL DYNAMICS  ------------------
+%  ------------------------------------------------------------------------
+%
+%  The parameters dictating contrast evolution in the features are set
+%  here. Slices 3-5 and 9-11 contain exponentially decaying contrast
+%  features (the first changing in decay rate and the second changing in
+%  initial magnitude) while slices 15-17 contain sinusoidally varying
+%  contrast of different frequencies. Slices 21-23 contain static pin
+%  grids, while slices 27-29 contain linearly increasing pin grids.
+%
+%  NOTE: Can change calc_extended_tofts_conc to *_trapz if desired, but 
+%        make sure to adjust the fitting algorithm accordingly in
+%        Get_Tofts_Parameters.m. Fitting routine must match method of
+%        generation (i.e. trapz with trapz, conv with conv, to avoid
+%        numerical error by difference in method).
+%
+%  Recall that the format for temporal parameters goes as:
+%             Tofts  = [Ktrans, Ve, Vp].
+%
+%             Linear = [normalized slope (arb unit / sec), 
+%                       constant offset (arb units)].
+
+% Set base intensity of phantom to be half of the signal range (arbitrary
+% choice).
+phantBase = phantBase * 1;% phantBase * signalRange/2;
+
+% Features in slices 3 to 5. Embedded cylinders, where inner cylinders
+% decrease in Ktrans down the rows. 
+phantFeatures(1).params = [0.4 0.5 0.3]; % outer cylinders all have same dynamics.
+phantFeatures(1).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(1).params(1),...
+    phantFeatures(1).params(2),...
+    phantFeatures(1).params(3)],...
+    samplingTimes);
+
+phantFeatures(2).params = [0.7 0.5 0.3]; % top row of inner cylinders
+phantFeatures(2).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(2).params(1),...
+    phantFeatures(2).params(2),...
+    phantFeatures(2).params(3)],...
+    samplingTimes);
+
+phantFeatures(3).params = [0.5 0.5 0.3]; % second row of inner cylinders
+phantFeatures(3).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(3).params(1),...
+    phantFeatures(3).params(2),...
+    phantFeatures(3).params(3)],...
+    samplingTimes);
+
+phantFeatures(4).params = [0.3 0.5 0.3]; % third row of inner cylinders
+phantFeatures(4).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(4).params(1),...
+    phantFeatures(4).params(2),...
+    phantFeatures(4).params(3)],...
+    samplingTimes);
+
+phantFeatures(5).params = [0.1 0.5 0.3]; % fourth row of inner cylinders
+phantFeatures(5).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(5).params(1),...
+    phantFeatures(5).params(2),...
+    phantFeatures(5).params(3)],...
+    samplingTimes);
+
+% Features in slices 9 to 11. Embedded cylinders, where inner cylinders
+% decrease in Ve down the rows. 
+phantFeatures(6).params = [0.4 0.5 0.3]; % outer cylinders all have same dynamics.
+phantFeatures(6).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(6).params(1),...
+    phantFeatures(6).params(2),...
+    phantFeatures(6).params(3)],...
+    samplingTimes);
+
+phantFeatures(7).params = [0.3 0.6 0.3]; % first row of inner cylinders
+phantFeatures(7).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(7).params(1),...
+    phantFeatures(7).params(2),...
+    phantFeatures(7).params(3)],...
+    samplingTimes);
+
+phantFeatures(8).params = [0.3 0.5 0.3]; % second row of inner cylinders
+phantFeatures(8).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(8).params(1),...
+    phantFeatures(8).params(2),...
+    phantFeatures(8).params(3)],...
+    samplingTimes);
+
+phantFeatures(9).params = [0.3 0.4 0.3]; % third row of inner cylinders
+phantFeatures(9).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(9).params(1),...
+    phantFeatures(9).params(2),...
+    phantFeatures(9).params(3)],...
+    samplingTimes);
+
+phantFeatures(10).params = [0.3 0.3 0.3]; % fourth row of inner cylinders
+phantFeatures(10).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(10).params(1),...
+    phantFeatures(10).params(2),...
+    phantFeatures(10).params(3)],...
+    samplingTimes);
+
+% Features in slices 15 to 17. Embedded cylinders, where inner cylinders
+% decrease in Vp down the rows. 
+phantFeatures(11).params = [0.4 0.5 0.3]; % outer cylinders all have same dynamics.
+phantFeatures(11).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(11).params(1),...
+    phantFeatures(11).params(2),...
+    phantFeatures(11).params(3)],...
+    samplingTimes);
+
+phantFeatures(12).params = [0.3 0.5 0.4]; % top row of inner cylinders
+phantFeatures(12).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(12).params(1),...
+    phantFeatures(12).params(2),...
+    phantFeatures(12).params(3)],...
+    samplingTimes);
+
+phantFeatures(13).params = [0.3 0.5 0.3]; % second row of inner cylinders
+phantFeatures(13).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(13).params(1),...
+    phantFeatures(13).params(2),...
+    phantFeatures(13).params(3)],...
+    samplingTimes);
+
+phantFeatures(14).params = [0.3 0.5 0.2]; % third row of inner cylinders
+phantFeatures(14).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(14).params(1),...
+    phantFeatures(14).params(2),...
+    phantFeatures(14).params(3)],...
+    samplingTimes);
+
+phantFeatures(15).params = [0.3 0.5 0.1]; % fourth row of inner cylinders
+phantFeatures(15).Ct = calc_extended_tofts_intg(...
+    [phantFeatures(15).params(1),...
+    phantFeatures(15).params(2),...
+    phantFeatures(15).params(3)],...
+    samplingTimes);
+
+% Find the max signal range calculated from the Tofts model curves, use
+% those to scale the temporal dynamics of the pin grids.
+maxCts = zeros(1,numel(phantFeatures)-2); 
+for i = 1:numel(phantFeatures)-2
+    maxCts(i) = max(phantFeatures(i).Ct(:));
+end
+signalRange = max(maxCts(:));
+
+% Features in slices 21 to 23 (static pin grids). Follows form
+% f(t) = (t/t_end) * A + B, such that max value is given by A (due to
+% normalizing by t/t_end) and B is a vertical offset.
+phantFeatures(16).params = [0,0.5*signalRange]; % all pin grids have same dynamics.
+phantFeatures(16).Ct  = (samplingTimes./samplingTimes(end)) .* ...
+    phantFeatures(16).params(1) + phantFeatures(16).params(2);
+ 
+% Features in slices 27 to 29 (linearly increasing pin grids). 
+% Follows form f(t) = (t/t_end) * A + B, such that max value is given by A 
+% (due to normalizing by t/t_end) and B is a vertical offset.
+phantFeatures(17).params = [0.8*signalRange,0.1*signalRange]; % all pin grids have same dynamics.
+phantFeatures(17).Ct = (samplingTimes./samplingTimes(end)) .* ...
+    phantFeatures(17).params(1) + phantFeatures(17).params(2);
+
+end
+
